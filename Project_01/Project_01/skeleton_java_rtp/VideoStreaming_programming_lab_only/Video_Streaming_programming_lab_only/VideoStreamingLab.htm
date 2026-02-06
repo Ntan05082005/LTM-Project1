@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<!-- saved from url=(0065)http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/lab5.html -->
+<HTML><HEAD><TITLE>Programming Assignment 5: Streaming Video with RTSP and RTP</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=windows-1252">
+<STYLE type=text/css>H1 {
+	FONT-WEIGHT: normal; FONT-SIZE: 19pt; COLOR: #8989db; FONT-FAMILY: Arial, sans-serif
+}
+H2 {
+	FONT-WEIGHT: bold; FONT-SIZE: 16pt; COLOR: black; FONT-FAMILY: Arial, sans-serif
+}
+H3 {
+	FONT-WEIGHT: bold; FONT-SIZE: 14pt; COLOR: #8989db; FONT-FAMILY: Arial, sans-serif
+}
+P {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+TD {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+TH {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+DT {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+DD {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+LI {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+A:link {
+	COLOR: #000066
+}
+A:visited {
+	COLOR: #666666
+}
+</STYLE>
+
+<META content="Microsoft FrontPage 5.0" name=GENERATOR></HEAD>
+<BODY>
+<H1>Programming Assignment 5: Streaming Video with RTSP and RTP</H1>
+<H2>The Code</H2>
+<P>In this lab you will implement a streaming video server and client that 
+communicate using the Real-Time Streaming Protocol (RTSP) and send data using 
+the Real-time Transfer Protocol (RTP). Your task is to implement the RTSP 
+protocol in the client and implement the RTP packetization in the server. 
+<P>We will provide you code that implements the RTSP protocol in the server, the 
+RTP de-packetization in the client, and takes care of displaying the transmitted 
+video. You do not need to touch this code. 
+<H3>Classes</H3>
+<P>There are 4 classes in the assignment. 
+<DL>
+  <DT>
+  <a target="_blank" href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/Client.html"><B>Client</B>
+  </a> 
+  <DD>This class implements the client and the user interface which you use to 
+  send RTSP commands and which is used to display the video. Below is what the 
+  interface looks like. <EM>You will need to implement the actions that are 
+  taken when the buttons are pressed</EM>. 
+  <DT><B><A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/Server.html" 
+  target=_blank>Server</A></B> 
+  <DD>This class implements the server which responds to the RTSP requests and 
+  streams back the video. The RTSP interaction is already implemented and the 
+  server calls routines in the RTPpacket class to packetize the video data. You 
+  do not need to modify this class. 
+  <DT><B><A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/RTPpacket.html" 
+  target=_blank>RTPpacket</A></B> 
+  <DD>This class is used to handle the RTP packets. It has separate routines for 
+  handling the received packets at the client side which is given and you do not 
+  need to modify it (but see <A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/lab5.html#optional">Optional 
+  Exercises</A>). <EM>You will need to complete the first constructor of this 
+  class to implement RTP-packetization of the video data</EM>. The second 
+  constructor is used by the client to de-packetize the data. You do not need to 
+  modify that. 
+  <DT><B><A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/VideoStream.html" 
+  target=_blank>VideoStream</A></B> 
+  <DD>This class is used to read video data from the file on disk. You do not 
+  need to modify this class. </DD></DL>
+<H3>Running the Code</H3>
+<P><B>After completing the code, you can run it as follows</B>. 
+<P>First, start the server with the command <PRE>        java Server server_port
+</PRE>
+<P>where <TT>server_port</TT> is the port your server listens to for incoming 
+RTSP connections. The standard RTSP port is 554, but you will need to choose a 
+port number greater than 1024. 
+<P>Then, start the client with the command <PRE>        java Client server_name server_port video_file
+</PRE>
+<P>where <TT>server_host</TT> is the name of the machine where the server is 
+running, <TT>server_port</TT> is the port the server is listening on, and 
+<TT>video_file</TT> is the name of the file you want to request (we have 
+provided one example file <TT><A 
+href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/movie.Mjpeg">movie.Mjpeg</A></TT>). 
+The file format is described in the <A 
+href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/lab5.html#appendix">Appendix</A>. 
+
+<P>The client opens a connection to the server and pops up a window like this: 
+<P align=center><IMG height=370 src="VideoStreaming_files/screenshot.jpg" 
+width=390> 
+<P>You can send RTSP commands to the server by pressing the buttons. A normal 
+RTSP interaction goes as follows. 
+<OL>
+  <LI>Client sends SETUP. This command is used to set up the session and 
+  transport parameters. 
+  <LI>Client sends PLAY. This starts the playback. 
+  <LI>Client may send PAUSE if it wants to pause during playback. 
+  <LI>Client sends TEARDOWN. This terminates the session and closes the 
+  connection. </LI></OL>
+<P>The server alway replies to all the messages the client sends. The reply 
+codes are roughly the same as in HTTP. The code 200 means that the request was 
+successful. In this lab you do not need to implement any other reply codes. For 
+more information about RTSP, please see RFC 2326. 
+<HR>
+
+<H2>1. Client</H2>
+<P>Your first task is to implement the RTSP on the client side. To do this, you 
+need to complete the functions that are called when the user clicks on the 
+buttons in the user interface. For each button in the interface there is a 
+handler function in the code. You will need to implement the following actions 
+in each handler function. 
+<P>When the client starts, it also opens the RTSP socket to the server. Use this 
+socket for sending all RTSP requests. 
+<H3>SETUP</H3>
+<UL>
+  <LI>Create a socket for receiving RTP data and set the timeout on the socket 
+  to 5 milliseconds. 
+  <LI>Send SETUP request to server. You will need to insert the Transport header 
+  in which you specify the port for the RTP data socket you just created. 
+  <LI>Read reply from server and parse the Session header in the response to get 
+  the session ID. </LI></UL>
+<H3>PLAY</H3>
+<UL>
+  <LI>Send PLAY request. You must insert the Session header and use the session 
+  ID returned in the SETUP response. You must not put the Transport header in 
+  this request. 
+  <LI>Read server's response. </LI></UL>
+<H3>PAUSE</H3>
+<UL>
+  <LI>Send PAUSE request. You must insert the Session header and use the session 
+  ID returned in the SETUP response. You must not put the Transport header in 
+  this request. 
+  <LI>Read server's response. </LI></UL>
+<H3>TEARDOWN</H3>
+<UL>
+  <LI>Send TEARDOWN request. You must insert the Session header and use the 
+  session ID returned in the SETUP response. You must not put the Transport 
+  header in this request. 
+  <LI>Read server's response. </LI></UL>
+<P><STRONG>Note:</STRONG> <EM>You must insert the CSeq header in every request 
+you send</EM>. The value of the CSeq header is a number which is incremented by 
+one for each request you send. 
+<H3>Example</H3>
+<P>Here is a sample interaction between the client and server. The client's 
+requestes are marked with C: and server's replies with S:. In this lab both the 
+client and the server are <STRONG>very simple</STRONG>. They do not have 
+sophisticated parsing routines and they <EM>expect the header fields to be in 
+the order you see below</EM>. That is, in a request, the first header is CSeq, 
+and the second one is either Transport (for SETUP) or Session (for all other 
+requests). In the reply, CSeq is again the first and Session is the second. <PRE>C: SETUP movie.Mjpeg RTSP/1.0
+C: CSeq: 1
+C: Transport: RTP/UDP; client_port= 25000
+
+S: RTSP/1.0 200 OK
+S: CSeq: 1
+S: Session: 123456
+
+C: PLAY movie.Mjpeg RTSP/1.0
+C: CSeq: 2
+C: Session: 123456
+
+S: RTSP/1.0 200 OK
+S: CSeq: 2
+S: Session: 123456
+
+C: PAUSE movie.Mjpeg RTSP/1.0
+C: CSeq: 3
+C: Session: 123456
+
+S: RTSP/1.0 200 OK
+S: CSeq: 3
+S: Session: 123456
+
+C: PLAY movie.Mjpeg RTSP/1.0
+C: CSeq: 4
+C: Session: 123456
+
+S: RTSP/1.0 200 OK
+S: CSeq: 4
+S: Session: 123456
+
+C: TEARDOWN movie.Mjpeg RTSP/1.0
+C: CSeq: 5
+C: Session: 123456
+
+S: RTSP/1.0 200 OK
+S: CSeq: 5
+S: Session: 123456
+</PRE>
+<H3>Client State</H3>
+<P>One of the key differences between HTTP and RTSP is that in RTSP each session 
+has a state. In this lab you will need to keep the client's state up-to-date. 
+Client changes state when it receives a reply from the server according to the 
+following state diagram. 
+<P align=center><IMG height=237 src="VideoStreaming_files/state.gif" width=660> 
+<HR>
+
+<H2>2. Server</H2>
+<P>On the server you will need to implement the packetization of the video data 
+into RTP packets. For this you will need to create the packet, set the fields in 
+the packet header, and copy the payload (i.e., one video frame) into the packet. 
+
+<P>When the server receives the PLAY-request from the client, it starts a timer 
+which is triggered every 100 ms. At these times the server will read one video 
+frame from the file and send it to the client. The server creates an 
+RTPpacket-object which is the RTP-encapsulation of the video frame. 
+<P>The server calls the first constructor of the class RTPpacket to perform the 
+encapsulation. Your task is to write this function. You will need to do the 
+following: (the letters in parenthesis refer to the fields in the RTP packet 
+format below) 
+<OL>
+  <LI>Set the RTP-version field (V). You must set this to 2. 
+  <LI>Set padding (P), extension (X), number of contributing sources (CC), and 
+  marker (M) fields. <EM>These are all set to zero in this lab</EM>. 
+  <LI>Set payload type field (PT). In this lab we use MJPEG and the type for 
+  that is 26. 
+  <LI>Set the sequence number. The server gives this the sequence number as the 
+  <TT>Framenb</TT> argument to the constructor. 
+  <LI>Set the timestamp. The server gives this number as the <TT>Time</TT> 
+  argument to the constructor. 
+  <LI>Set the source identifier (SSRC). This field identifies the server. You 
+  can pick any integer value you like. </LI></OL>
+<P>Because we have no other contributing sources (field CC == 0), the CSRC-field 
+does not exist. The length of the packet header is therefore 12 bytes, or the 
+first three lines from the diagram below. <PRE>    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |V=2|P|X|  CC   |M|     PT      |       sequence number         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                           timestamp                           |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           synchronization source (SSRC) identifier            |
+   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+   |            contributing source (CSRC) identifiers             |
+   |                             ....                              |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</PRE>
+<P>You must fill in the header in the array <TT>header</TT> of the 
+RTPpacket-class. You will also need to copy the payload (given as argument 
+<TT>data</TT>) to the variable <TT>payload</TT>. The length of the payload is 
+given in the argument <TT>data_length</TT>. 
+<P>The above diagram is in the network byte order (also known as big-endian). 
+The Java Virtual Machine uses the same byte order so you do not need to 
+transform your packet header into the network byte order. 
+<P>For more details on RTP, please see RFC 1889. 
+<H3>Twiddling the Bits</H3>
+<P>Here are some examples on how to set and check individual bits or groups of 
+bits. Note that in the RTP packet header format smaller bit-numbers refer to 
+higher order bits, that is, bit number 0 of a byte is 2^7 and bit number 7 is 1 
+(or 2^0). In the examples below, the bit numbers refer to the numbers in the 
+above diagram. 
+<P>Because the header-field of the RTPpacket class is an array of type 
+<TT>byte</TT>, you will need to set the header one byte at a time, that is in 
+groups of 8 bits. The first byte has bits 0-7, the second byte has bits 8-15, 
+and so on. In Java an int is 32 bits or 4 bytes. 
+<P>To set bit number <I>n</I> in variable <TT>mybyte</TT> of type byte: <PRE>        mybyte = mybyte | 1 &lt;&lt; (7 - n);
+</PRE>
+<P>To set bits <I>n</I> and <I>n + 1</I> to the value of <TT>foo</TT> in 
+variable <TT>mybyte</TT>: <PRE>       mybyte = mybyte | foo &lt;&lt; (7 - n);
+</PRE>
+<P>Note that <TT>foo</TT> must have a value that can be expressed with 2 bits, 
+that is, 0, 1, 2, or 3. 
+<P>To copy a 16-bit integer <TT>foo</TT> into 2 bytes, <TT>b1</TT> and 
+<TT>b2</TT>: <PRE>       b1 = foo &gt;&gt; 8;
+       b2 = foo &amp; 0xFF;
+</PRE>
+<P>After this, <TT>b1</TT> will have the 8 high-order bits of <TT>foo</TT> and 
+<TT>b2</TT> will have the 8 low-order bits of <TT>foo</TT>. 
+<P>You can copy a 32-bit integer into 4 bytes in a similar way. 
+<P>If you're not comfortable setting bits, you can find more information in <A 
+href="http://java.sun.com/docs/books/tutorial/java/nutsandbolts/bitwise.html" 
+target=_blank>the Java Tutorial</A>. 
+<H3>Bit Example</H3>
+<P>Suppose we want to fill in the first byte of the RTP packet header with the 
+following values: 
+<UL>
+  <LI>V = 2 
+  <LI>P = 0 
+  <LI>X = 0 
+  <LI>CC = 3 </LI></UL>
+<P>In binary this would be represented as <PRE>        1 0 | 0 | 0 | 0 0 1 1
+        V=2   P   X   CC = 3
+
+       2^7 . . . . . . . . 2^0
+</PRE>
+<HR>
+
+<H2><A name=optional>Optional Exercises</A></H2>
+<UL>
+  <LI>Instead of the normal server given to you, use the class called <TT><A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/FunkyServer.class">FunkyServer</A></TT> 
+  (download also the class <A 
+  href="http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/FunkyServer$1.class">FunkyServer$1.class</A>), 
+  i.e., run it with <TT>java FunkyServer server_port</TT>. What do you see at 
+  the client? Explain what happens, why, and fix it. 
+  <LI>Calculate statistics about the session. You will need to calculate RTP 
+  packet loss rate, video data rate (in bits or bytes per second), and any other 
+  interesting statistics you can think of. 
+  <LI>The user interface on the client has 4 buttons for the 4 actions. If you 
+  compare this to a standard media player, such as RealPlayer or Windows Media 
+  Player, you can see that they have only 3 buttons for the same actions, 
+  namely, PLAY, PAUSE, and STOP (roughly corresponding to TEARDOWN). There is no 
+  SETUP-button available to the user. Given that SETUP is mandatory in an 
+  RTSP-interaction, how would you implement that in a media player? When does 
+  the client send the SETUP? Come up with a solution and implement it. Is it 
+  appropriate to send TEARDOWN when user clicks on the stop-button? 
+  <LI>Currently the client and server only implement the minimum necessary RTSP 
+  interactions and PAUSE. Implement the method DESCRIBE which is used to pass 
+  information about the media stream. When the server receives a 
+  DESCRIBE-request, it sends back a session description file which tells the 
+  client what kinds of streams are in the session and what encodings are used. 
+  </LI></UL>
+<H2><A name=appendix>Appendix</A></H2>
+<P>Lab's proprietary MJPEG (Motion JPEG) format. 
+<P>In this lab, the server streams a video which has been encoded into a 
+proprietary MJPEG file format. This format stores the video as concatenated 
+JPEG-encoded images, with each image being preceded by a 5-Byte header which 
+indicates the bit size of the image. The server parses the bitstream of the 
+MJPEG file to extract the JPEG images on the fly. The server sends the images to 
+the client at periodic intervals. The client then displays the individual JPEG 
+images as they arrive from the server. </P></BODY></HTML>
