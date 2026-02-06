@@ -1,0 +1,81 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<!-- saved from url=(0072)http://media.pearsoncmg.com/aw/aw_kurose_network_2/labs/VideoStream.html -->
+<HTML><HEAD><TITLE>VideoStream.java</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=windows-1252">
+<STYLE type=text/css>H1 {
+	FONT-WEIGHT: normal; FONT-SIZE: 19pt; COLOR: #8989db; FONT-FAMILY: Arial, sans-serif
+}
+H2 {
+	FONT-WEIGHT: bold; FONT-SIZE: 16pt; COLOR: black; FONT-FAMILY: Arial, sans-serif
+}
+H3 {
+	FONT-WEIGHT: bold; FONT-SIZE: 14pt; COLOR: #8989db; FONT-FAMILY: Arial, sans-serif
+}
+P {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+TD {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+TH {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+DT {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+DD {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+LI {
+	FONT-SIZE: 10pt; FONT-FAMILY: Arial, sans-serif
+}
+A:link {
+	COLOR: #000066
+}
+A:visited {
+	COLOR: #666666
+}
+</STYLE>
+
+<META content="MSHTML 6.00.2800.1400" name=GENERATOR></HEAD>
+<BODY>
+<H3><A name=videostream>VideoStream.java</A></H3><PRE>//VideoStream
+
+import java.io.*;
+
+public class VideoStream {
+
+  FileInputStream fis; //video file
+  int frame_nb; //current frame nb
+
+  //-----------------------------------
+  //constructor
+  //-----------------------------------
+  public VideoStream(String filename) throws Exception{
+
+    //init variables
+    fis = new FileInputStream(filename);
+    frame_nb = 0;
+  }
+
+  //-----------------------------------
+  // getnextframe
+  //returns the next frame as an array of byte and the size of the frame
+  //-----------------------------------
+  public int getnextframe(byte[] frame) throws Exception
+  {
+    int length = 0;
+    String length_string;
+    byte[] frame_length = new byte[5];
+
+    //read current frame length
+    fis.read(frame_length,0,5);
+	
+    //transform frame_length to integer
+    length_string = new String(frame_length);
+    length = Integer.parseInt(length_string);
+	
+    return(fis.read(frame,0,length));
+  }
+}
+</PRE></BODY></HTML>
