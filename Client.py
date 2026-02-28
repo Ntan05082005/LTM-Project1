@@ -239,19 +239,19 @@ class Client:
 						# TO COMPLETE
 						#-------------
 						# Update RTSP state.
-						# self.state = ...
+						self.state = self.READY
 						
 						# Open RTP port.
 						self.openRtpPort() 
 					elif self.requestSent == self.PLAY:
-						# self.state = ...
+						self.state = self.PLAYING
 					elif self.requestSent == self.PAUSE:
-						# self.state = ...
+						self.state = self.READY
 						
 						# The play thread exits. A new thread is created on resume.
 						self.playEvent.set()
 					elif self.requestSent == self.TEARDOWN:
-						# self.state = ...
+						self.state = self.INIT
 						
 						# Flag the teardownAcked to close the socket.
 						self.teardownAcked = 1 
