@@ -261,15 +261,28 @@ class Client:
 		#-------------
 		# TO COMPLETE
 		#-------------
+
+		# Switch to TCP socket for HD streaming
+		if self.useHD:
+			self.rtpTcpSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.rtpTcpSocket.settimeout(0.5)
+			try:
+				self.rtpTcpSocket.connect((self.serverAddr, self.rtpPort))
+			except Exception as e:
+				print("TCP connection failed, falling back to UDP: " + str(e))
+				self.useHD = False
+				self.hdVar.set(0)
+
+
 		# Create a new datagram socket to receive RTP packets from the server
-		# self.rtpSocket = ...
+		self.rtpSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		
 		# Set the timeout value of the socket to 0.5sec
-		# ...
+		self.rtpSocket.settimeout(0.5)
 		
 		try:
 			# Bind the socket to the address using the RTP port given by the client user
-			# ...
+			self.rtpSocket.bind(('', self.rtpPort if not self.useHD else self.rtpPort + 1))
 		except:
 			tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtpPort)
 
