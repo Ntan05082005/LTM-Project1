@@ -1,6 +1,6 @@
 from tkinter import *
 import tkinter.messagebox
-from PIL import Image, ImageTk
+from PIL import Image as PilImage, ImageTk
 import socket, threading, os, io, time
 from collections import deque
 
@@ -8,7 +8,7 @@ from RtpPacket import RtpPacket
 
 CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
-BUFFER_SIZE = 10   # Số frame pre-buffer trước khi phát
+BUFFER_SIZE = 10  # Số frame pre-buffer trước khi phát
 
 
 class Client:
@@ -21,10 +21,14 @@ class Client:
     PLAY = 1
     PAUSE = 2
     TEARDOWN = 3
+    QUALITY_LABELS = ("SD-540", "HD-720", "HD-1080")
 
     def __init__(self, master, serveraddr, serverport, rtpport, filename):
         self.master = master
         self.master.protocol("WM_DELETE_WINDOW", self.handler)
+        self.master.geometry("960x720")
+        self.master.minsize(640, 480)
+        self.master.resizable(True, True)
         self.serverAddr = serveraddr
         self.serverPort = int(serverport)
         self.rtpPort = int(rtpport)
@@ -37,20 +41,27 @@ class Client:
 
         # HD flag – mặc định SD (UDP)
         self.useHD = False
+        self.sessionUseHD = False
 
         # Frame buffer cho client-side caching
         self.frameBuffer = deque()
         self.bufferLock = threading.Lock()
         self.bufferReady = threading.Event()
         self.bufferFilled = False
+        self.playEvent = threading.Event()
+        self.streamToken = 0
+        self.autoPlayAfterSetup = False
 
         # Sockets
-        self.rtpSocket = None       # UDP socket
-        self.rtpTcpServer = None    # TCP listen socket
-        self.rtpTcpConn = None      # TCP accepted connection
+        self.rtpSocket = None  # UDP socket
+        self.rtpTcpServer = None  # TCP listen socket
+        self.rtpTcpConn = None  # TCP accepted connection
 
         # Fragment reassembly buffer
         self.fragmentBuffer = bytearray()
+        self.fragmentSeq = None
+        self.currentFrameData = None
+        self.currentFrameSize = None
 
         self.connectToServer()
         self.createWidgets()
@@ -59,81 +70,139 @@ class Client:
 
     def createWidgets(self):
         """Tạo giao diện."""
-        self.label = Label(self.master, height=19, bg="black")
-        self.label.grid(row=0, column=0, columnspan=5, sticky=W+E+N+S, padx=5, pady=5)
+        self.master.grid_rowconfigure(0, weight=1)
+        for column in range(4):
+            self.master.grid_columnconfigure(column, weight=1)
+
+        self.label = Label(self.master, bg="black")
+        self.label.grid(
+            row=0, column=0, columnspan=5, sticky=W + E + N + S, padx=5, pady=5
+        )
+        self.label.bind("<Configure>", self._onVideoResize)
 
         btn_cfg = dict(width=14, padx=3, pady=3)
 
-        self.setupBtn = Button(self.master, text="Setup", command=self.setupMovie, **btn_cfg)
+        self.setupBtn = Button(
+            self.master, text="Setup", command=self.setupMovie, **btn_cfg
+        )
         self.setupBtn.grid(row=1, column=0, padx=2, pady=2)
 
-        self.playBtn = Button(self.master, text="Play", command=self.playMovie, **btn_cfg)
+        self.playBtn = Button(
+            self.master, text="Play", command=self.playMovie, **btn_cfg
+        )
         self.playBtn.grid(row=1, column=1, padx=2, pady=2)
 
-        self.pauseBtn = Button(self.master, text="Pause", command=self.pauseMovie, **btn_cfg)
+        self.pauseBtn = Button(
+            self.master, text="Pause", command=self.pauseMovie, **btn_cfg
+        )
         self.pauseBtn.grid(row=1, column=2, padx=2, pady=2)
 
-        self.teardownBtn = Button(self.master, text="Teardown", command=self.exitClient, **btn_cfg)
+        self.teardownBtn = Button(
+            self.master, text="Teardown", command=self.exitClient, **btn_cfg
+        )
         self.teardownBtn.grid(row=1, column=3, padx=2, pady=2)
 
         # Radio buttons chọn chất lượng
         self.hdVar = IntVar(value=0)
         qf = Frame(self.master)
         qf.grid(row=1, column=4, padx=6)
-        Radiobutton(qf, text="SD-540",  variable=self.hdVar, value=0, command=self.onQualityChange).pack(anchor=W)
-        Radiobutton(qf, text="HD-720",  variable=self.hdVar, value=1, command=self.onQualityChange).pack(anchor=W)
-        Radiobutton(qf, text="HD-1080", variable=self.hdVar, value=2, command=self.onQualityChange).pack(anchor=W)
+        Radiobutton(
+            qf,
+            text="SD-540",
+            variable=self.hdVar,
+            value=0,
+            command=self.onQualityChange,
+        ).pack(anchor=W)
+        Radiobutton(
+            qf,
+            text="HD-720",
+            variable=self.hdVar,
+            value=1,
+            command=self.onQualityChange,
+        ).pack(anchor=W)
+        Radiobutton(
+            qf,
+            text="HD-1080",
+            variable=self.hdVar,
+            value=2,
+            command=self.onQualityChange,
+        ).pack(anchor=W)
 
-        self.statusVar = StringVar(value="Connected")
+        self.statusVar = StringVar(value="")
         Label(self.master, textvariable=self.statusVar, relief=SUNKEN, anchor=W).grid(
-            row=2, column=0, columnspan=5, sticky=W+E, padx=5, pady=2)
+            row=2, column=0, columnspan=5, sticky=W + E, padx=5, pady=2
+        )
+        self._setStatus("Connected")
+
+    def _transportLabel(self, use_hd):
+        return "TCP" if use_hd else "UDP"
+
+    def _selectedQualityLabel(self):
+        if hasattr(self, "hdVar"):
+            return self.QUALITY_LABELS[self.hdVar.get()]
+        return self.QUALITY_LABELS[0]
+
+    def _activeTransportLabel(self):
+        if self.state != self.INIT and self.sessionId:
+            return self._transportLabel(self.sessionUseHD)
+        return self._transportLabel(self.useHD)
+
+    def _frameSizeLabel(self):
+        if self.currentFrameSize:
+            width, height = self.currentFrameSize
+            return f"{width}x{height}"
+        return "unknown"
+
+    def _buildStatusText(self, message):
+        selected = self._selectedQualityLabel()
+        active_transport = self._activeTransportLabel()
+        selected_transport = self._transportLabel(self.useHD)
+        if self.state != self.INIT and self.useHD != self.sessionUseHD:
+            mode_text = (
+                f"selected {selected}/{selected_transport} | active {active_transport}"
+            )
+        else:
+            mode_text = f"{selected} | {active_transport}"
+        return f"{mode_text} | frame {self._frameSizeLabel()} | {message}"
+
+    def _setStatus(self, message):
+        text = self._buildStatusText(message)
+        if threading.current_thread() is threading.main_thread():
+            self.statusVar.set(text)
+        else:
+            self.master.after(0, lambda value=text: self.statusVar.set(value))
 
     def onQualityChange(self):
         """Xử lý khi đổi quality."""
         self.useHD = self.hdVar.get() > 0
-        labels = ["SD-540 (UDP)", "HD-720 (TCP)", "HD-1080 (TCP)"]
-        self.statusVar.set(f"Quality: {labels[self.hdVar.get()]}")
+        if self.state != self.INIT and self.useHD != self.sessionUseHD:
+            self._setStatus("Quality changed. Press Play to restart session.")
+        else:
+            self._setStatus("Quality selected")
 
     # ─────────────────── Button Handlers ───────────────────
 
     def setupMovie(self):
+        self.autoPlayAfterSetup = False
         if self.state == self.INIT:
             self.sendRtspRequest(self.SETUP)
+        elif self.useHD != self.sessionUseHD:
+            self._restartSession(auto_play=False)
 
     def exitClient(self):
         """Teardown: kết thúc session, reset về INIT để Setup lại."""
-        if self.state != self.INIT:
-            if hasattr(self, 'playEvent'):
-                self.playEvent.set()
-            self.sendRtspRequest(self.TEARDOWN)
-            time.sleep(0.2)  # Chờ server nhận TEARDOWN
-        # Đóng RTSP socket cũ
-        try:
-            self.rtspSocket.close()
-        except Exception:
-            pass
-        # Reset state
-        self.state = self.INIT
-        self.sessionId = 0
-        self.rtspSeq = 0
-        self.frameNbr = -1
-        self.fragmentBuffer = bytearray()
-        self.frameBuffer.clear()
-        self.bufferFilled = False
-        self._closeRtpSockets()
-        # Kết nối lại RTSP socket mới cho session tiếp theo
-        self.rtspSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            self.rtspSocket.connect((self.serverAddr, self.serverPort))
-            self.statusVar.set("Session ended. Select quality and press Setup.")
-        except Exception:
-            self.statusVar.set("Reconnect failed. Restart server.")
+        self._invalidatePlaybackSession()
+        self.autoPlayAfterSetup = False
+        self._resetSession(keep_connection=True)
+        if self.rtspSocket:
+            self._setStatus("Session ended. Select quality and press Play or Setup.")
+        else:
+            self._setStatus("Reconnect failed. Restart server.")
 
     def closeApp(self):
         """Đóng hoàn toàn app — gọi khi người dùng đóng cửa sổ."""
+        self._invalidatePlaybackSession()
         if self.state != self.INIT:
-            if hasattr(self, 'playEvent'):
-                self.playEvent.set()
             self.sendRtspRequest(self.TEARDOWN)
         self.master.destroy()
 
@@ -142,22 +211,85 @@ class Client:
             self.sendRtspRequest(self.PAUSE)
 
     def playMovie(self):
-        if self.state == self.READY:
-            self.playEvent = threading.Event()
-            self.playEvent.clear()
-            self.bufferFilled = False
-            self.bufferReady.clear()
-            # Start listen thread TRƯỚC khi gửi PLAY
-            threading.Thread(target=self.listenRtp, daemon=True).start()
-            threading.Thread(target=self.playFromBuffer, daemon=True).start()
-            self.sendRtspRequest(self.PLAY)
+        if self.state == self.INIT:
+            self.autoPlayAfterSetup = True
+            self.sendRtspRequest(self.SETUP)
+        elif self.state == self.READY:
+            if self.useHD != self.sessionUseHD:
+                self._restartSession(auto_play=True)
+            else:
+                self._startPlayback()
+
+    def _restartSession(self, auto_play):
+        self.autoPlayAfterSetup = auto_play
+        self._invalidatePlaybackSession()
+        self._resetSession(keep_connection=True)
+        if self.rtspSocket:
+            self.sendRtspRequest(self.SETUP)
+        else:
+            self._setStatus("Reconnect failed. Restart server.")
+
+    def _resetSession(self, keep_connection):
+        if self.state != self.INIT:
+            self.sendRtspRequest(self.TEARDOWN)
+            time.sleep(0.2)
+
+        try:
+            self.rtspSocket.close()
+        except Exception:
+            pass
+
+        self.state = self.INIT
+        self.sessionId = 0
+        self.rtspSeq = 0
+        self.frameNbr = -1
+        self.teardownAcked = 0
+        self.sessionUseHD = False
+        self._resetPlaybackBuffers()
+        self._closeRtpSockets()
+        self.rtspSocket = None
+
+        if keep_connection:
+            self.rtspSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                self.rtspSocket.connect((self.serverAddr, self.serverPort))
+            except Exception:
+                self.rtspSocket = None
+
+    def _startPlayback(self):
+        self._invalidatePlaybackSession()
+        self.playEvent.clear()
+        self.streamToken += 1
+        token = self.streamToken
+        self.teardownAcked = 0
+        self.bufferFilled = False
+        self.bufferReady.clear()
+        self._resetPlaybackBuffers()
+        threading.Thread(target=self.listenRtp, args=(token,), daemon=True).start()
+        threading.Thread(target=self.playFromBuffer, args=(token,), daemon=True).start()
+        self.sendRtspRequest(self.PLAY)
+
+    def _invalidatePlaybackSession(self):
+        self.streamToken += 1
+        self.playEvent.set()
+
+    def _resetPlaybackBuffers(self):
+        self.fragmentBuffer = bytearray()
+        self.fragmentSeq = None
+        self.currentFrameData = None
+        self.currentFrameSize = None
+        with self.bufferLock:
+            self.frameBuffer.clear()
+        self.bufferFilled = False
 
     # ─────────────────── RTP Receiving ───────────────────
 
-    def listenRtp(self):
+    def listenRtp(self, token):
         """Nhận RTP packets và đẩy vào frame buffer."""
         # Chờ socket sẵn sàng (tránh race condition với openRtpPort)
         for _ in range(40):  # chờ tối đa 2 giây
+            if token != self.streamToken or self.playEvent.is_set():
+                return
             if self.rtpSocket or self.rtpTcpConn:
                 break
             time.sleep(0.05)
@@ -167,8 +299,9 @@ class Client:
 
         # Reset fragment buffer khi bắt đầu session mới
         self.fragmentBuffer = bytearray()
-        print(f"[listenRtp] Socket ready, starting receive loop")
-        while True:
+        self.fragmentSeq = None
+        print("[listenRtp] Socket ready, starting receive loop")
+        while token == self.streamToken and not self.playEvent.is_set():
             try:
                 data = self._recvRtpPacket()
                 if not data:
@@ -176,26 +309,36 @@ class Client:
 
                 rtpPacket = RtpPacket()
                 rtpPacket.decode(data)
+                currSeq = rtpPacket.seqNum()
 
                 # Ghép mảnh (fragmentation reassembly)
+                if self.fragmentSeq is None or currSeq != self.fragmentSeq:
+                    self.fragmentBuffer = bytearray()
+                    self.fragmentSeq = currSeq
+
                 self.fragmentBuffer += rtpPacket.getPayload()
 
                 if rtpPacket.marker() == 1:
                     # Marker=1 → mảnh cuối → frame hoàn chỉnh
                     frame = bytes(self.fragmentBuffer)
                     self.fragmentBuffer = bytearray()
+                    self.fragmentSeq = None
 
-                    currSeq = rtpPacket.seqNum()
                     if currSeq > self.frameNbr:
                         self.frameNbr = currSeq
                         with self.bufferLock:
                             self.frameBuffer.append(frame)
-                            if not self.bufferFilled and len(self.frameBuffer) >= BUFFER_SIZE:
+                            if (
+                                not self.bufferFilled
+                                and len(self.frameBuffer) >= BUFFER_SIZE
+                            ):
                                 self.bufferFilled = True
                                 self.bufferReady.set()
 
+            except socket.timeout:
+                continue
             except Exception:
-                if self.playEvent.isSet():
+                if token != self.streamToken or self.playEvent.is_set():
                     break
                 if self.teardownAcked == 1:
                     self._closeRtpSockets()
@@ -228,32 +371,37 @@ class Client:
 
     # ─────────────────── Buffer & Display ───────────────────
 
-    def playFromBuffer(self):
+    def playFromBuffer(self, token):
         """Chờ đủ buffer rồi phát frame liên tục."""
-        self.statusVar.set(f"Buffering... 0/{BUFFER_SIZE} frames")
+        self._setStatus(f"Buffering... 0/{BUFFER_SIZE} frames")
 
         # Poll buffer count trong khi chờ, timeout 5s thì play luôn
         timeout = 50  # 50 * 0.1s = 5 giây
         waited = 0
-        while not self.bufferFilled and not self.playEvent.isSet() and waited < timeout:
+        while (
+            token == self.streamToken
+            and not self.bufferFilled
+            and not self.playEvent.is_set()
+            and waited < timeout
+        ):
             with self.bufferLock:
                 count = len(self.frameBuffer)
-            self.statusVar.set(f"Buffering... {count}/{BUFFER_SIZE} frames")
+            self._setStatus(f"Buffering... {count}/{BUFFER_SIZE} frames")
             time.sleep(0.1)
             waited += 1
 
-        if self.playEvent.isSet():
+        if token != self.streamToken or self.playEvent.is_set():
             return
 
         with self.bufferLock:
             count = len(self.frameBuffer)
         if count == 0:
-            self.statusVar.set("No frames received. Check server.")
+            self._setStatus("No frames received. Check server.")
             return
 
-        self.statusVar.set("Playing")
+        self._setStatus("Playing")
 
-        while not self.playEvent.isSet():
+        while token == self.streamToken and not self.playEvent.is_set():
             frame_data = None
             with self.bufferLock:
                 if self.frameBuffer:
@@ -268,12 +416,23 @@ class Client:
     def _showFrame(self, data):
         """Decode JPEG bytes và cập nhật GUI."""
         try:
-            img = Image.open(io.BytesIO(data))
+            self.currentFrameData = data
+            img = PilImage.open(io.BytesIO(data))
+            self.currentFrameSize = img.size
+            view_w = max(self.label.winfo_width(), 1)
+            view_h = max(self.label.winfo_height(), 1)
+            if view_w > 1 and view_h > 1:
+                img.thumbnail((view_w, view_h), PilImage.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(img)
-            self.label.configure(image=photo, height=288)
+            self.label.configure(image=photo)
             self.label.image = photo
+            self._setStatus("Playing")
         except Exception as e:
             print(f"Frame display error: {e}")
+
+    def _onVideoResize(self, _event):
+        if self.currentFrameData:
+            self._showFrame(self.currentFrameData)
 
     def writeFrame(self, data):
         cachename = CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
@@ -282,7 +441,7 @@ class Client:
         return cachename
 
     def updateMovie(self, imageFile):
-        photo = ImageTk.PhotoImage(Image.open(imageFile))
+        photo = ImageTk.PhotoImage(PilImage.open(imageFile))
         self.label.configure(image=photo, height=288)
         self.label.image = photo
 
@@ -295,7 +454,8 @@ class Client:
             self.rtspSocket.connect((self.serverAddr, self.serverPort))
         except Exception:
             tkinter.messagebox.showwarning(
-                "Connection Failed", f"Connection to '{self.serverAddr}' failed.")
+                "Connection Failed", f"Connection to '{self.serverAddr}' failed."
+            )
 
     def sendRtspRequest(self, requestCode):
         """Build và gửi RTSP request."""
@@ -303,30 +463,38 @@ class Client:
             threading.Thread(target=self.recvRtspReply, daemon=True).start()
             self.rtspSeq += 1
             transport = "RTP/TCP" if self.useHD else "RTP/UDP"
-            request = (f"SETUP {self.fileName} RTSP/1.0\n"
-                       f"CSeq: {self.rtspSeq}\n"
-                       f"Transport: {transport}; client_port= {self.rtpPort}")
+            request = (
+                f"SETUP {self.fileName} RTSP/1.0\n"
+                f"CSeq: {self.rtspSeq}\n"
+                f"Transport: {transport}; client_port= {self.rtpPort}"
+            )
             self.requestSent = self.SETUP
 
         elif requestCode == self.PLAY and self.state == self.READY:
             self.rtspSeq += 1
-            request = (f"PLAY {self.fileName} RTSP/1.0\n"
-                       f"CSeq: {self.rtspSeq}\n"
-                       f"Session: {self.sessionId}")
+            request = (
+                f"PLAY {self.fileName} RTSP/1.0\n"
+                f"CSeq: {self.rtspSeq}\n"
+                f"Session: {self.sessionId}"
+            )
             self.requestSent = self.PLAY
 
         elif requestCode == self.PAUSE and self.state == self.PLAYING:
             self.rtspSeq += 1
-            request = (f"PAUSE {self.fileName} RTSP/1.0\n"
-                       f"CSeq: {self.rtspSeq}\n"
-                       f"Session: {self.sessionId}")
+            request = (
+                f"PAUSE {self.fileName} RTSP/1.0\n"
+                f"CSeq: {self.rtspSeq}\n"
+                f"Session: {self.sessionId}"
+            )
             self.requestSent = self.PAUSE
 
         elif requestCode == self.TEARDOWN and self.state != self.INIT:
             self.rtspSeq += 1
-            request = (f"TEARDOWN {self.fileName} RTSP/1.0\n"
-                       f"CSeq: {self.rtspSeq}\n"
-                       f"Session: {self.sessionId}")
+            request = (
+                f"TEARDOWN {self.fileName} RTSP/1.0\n"
+                f"CSeq: {self.rtspSeq}\n"
+                f"Session: {self.sessionId}"
+            )
             self.requestSent = self.TEARDOWN
         else:
             return
@@ -349,6 +517,8 @@ class Client:
     def parseRtspReply(self, data):
         """Parse RTSP reply và cập nhật state machine."""
         lines = data.split("\n")
+        if len(lines) < 3:
+            return
         seqNum = int(lines[1].split(" ")[1])
 
         if seqNum == self.rtspSeq:
@@ -360,9 +530,15 @@ class Client:
                 if int(lines[0].split(" ")[1]) == 200:
                     if self.requestSent == self.SETUP:
                         self.state = self.READY
-                        self.statusVar.set(f"SETUP OK  |  Session: {self.sessionId}")
+                        self.teardownAcked = 0
+                        self.frameNbr = -1
+                        self.sessionUseHD = self.useHD
+                        self._setStatus(f"SETUP OK | Session: {self.sessionId}")
                         self.openRtpPort()
                         time.sleep(0.1)  # Đợi socket bind xong
+                        if self.autoPlayAfterSetup:
+                            self.autoPlayAfterSetup = False
+                            self.master.after(50, self.playMovie)
 
                     elif self.requestSent == self.PLAY:
                         self.state = self.PLAYING
@@ -391,8 +567,9 @@ class Client:
                 threading.Thread(target=self._acceptTcpRtp, daemon=True).start()
                 print(f"TCP RTP listening on port {self.rtpPort}")
             except Exception as e:
-                tkinter.messagebox.showwarning("Unable to Bind",
-                    f"Unable to bind TCP PORT={self.rtpPort}\n{e}")
+                tkinter.messagebox.showwarning(
+                    "Unable to Bind", f"Unable to bind TCP PORT={self.rtpPort}\n{e}"
+                )
         else:
             # UDP mode
             self.rtpSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -401,8 +578,9 @@ class Client:
                 self.rtpSocket.bind(("", self.rtpPort))
                 print(f"UDP RTP bound on port {self.rtpPort}")
             except Exception:
-                tkinter.messagebox.showwarning("Unable to Bind",
-                    f"Unable to bind UDP PORT={self.rtpPort}")
+                tkinter.messagebox.showwarning(
+                    "Unable to Bind", f"Unable to bind UDP PORT={self.rtpPort}"
+                )
 
     def _acceptTcpRtp(self):
         """Chấp nhận kết nối TCP RTP từ server."""
